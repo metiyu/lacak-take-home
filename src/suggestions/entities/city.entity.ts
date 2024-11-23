@@ -3,8 +3,8 @@ export class CityEntity {
     name: string;         // Name of the city
     ascii: string;        // ASCII representation of the city name
     altName: string;      // Alternate names for the city
-    lat: number;          // Latitude of the city
-    long: number;         // Longitude of the city
+    latitude: number;          // Latitude of the city
+    longitude: number;         // Longitude of the city
     featClass: string;    // Feature class (e.g., P for populated place)
     featCode: string;     // Feature code
     country: string;      // Country code
@@ -24,8 +24,8 @@ export class CityEntity {
         this.name = data.name;
         this.ascii = data.ascii;
         this.altName = data.alt_name;
-        this.lat = parseFloat(data.lat);
-        this.long = parseFloat(data.long);
+        this.latitude = parseFloat(data.lat);
+        this.longitude = parseFloat(data.long);
         this.featClass = data.feat_class;
         this.featCode = data.feat_code;
         this.country = data.country;

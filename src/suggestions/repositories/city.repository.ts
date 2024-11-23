@@ -3,9 +3,12 @@ import fs from "fs";
 import { TrieService } from "../trie/trie.service";
 import { CityEntity } from "../entities/city.entity";
 import { Inject, Injectable, forwardRef } from "@nestjs/common";
+import { TrieEntity } from "../entities/trie.entity";
 
 @Injectable()
 export class CityRepository {
+    private cities: Array<CityEntity> = [];
+
     constructor(
         @Inject(forwardRef(() => TrieService)) private readonly trieService: TrieService
     ) {
@@ -45,14 +48,28 @@ export class CityRepository {
 
             // Create a CityEntity instance from the parsed data
             const city = new CityEntity(cityData);
+            this.cities.push(city);
 
             // Insert the city into the Trie for quick retrieval
-            this.trieService.insert({
+            this.trieService.insert(new TrieEntity({
                 name: city.name,
-                latitude: city.lat,
-                longitude: city.long,
+                latitude: city.latitude,
+                longitude: city.longitude,
                 population: city.population,
-            });
+            }), "name")
+            // this.trieService.insert({
+            //     name: city.name,
+            //     latitude: city.lat,
+            //     longitude: city.long,
+            //     population: city.population,
+            // });
         }
+    }
+
+    // In city.repository.ts
+    async getAllCities(): Promise<CityEntity[]> {
+        // Implement logic to return all cities as an array of CityEntity
+        // This could be a simple return of the cities you have loaded
+        return this.cities; // Assuming you have a 'cities' array holding all CityEntity instances
     }
 }

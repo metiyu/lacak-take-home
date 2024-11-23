@@ -10,19 +10,20 @@ export class TrieNode {
     /**
      * Indicates whether this node marks the end of a word.
      */
-    isEndOfWord: boolean;
+    // isEndOfWord: boolean;
 
     /**
      * List of cities associated with this node.
      */
-    cities: Array<TrieEntity>;
+    // cities: Array<TrieEntity>;
+    cities: Array<{ city: TrieEntity; weight: number }>;
 
     /**
      * Constructor to initialize a TrieNode.
      */
     constructor() {
         this.children = new Map(); // Initialize children as an empty map
-        this.isEndOfWord = false; // Default is not the end of a word
+        // this.isEndOfWord = false; // Default is not the end of a word
         this.cities = []; // Initialize cities as an empty array
     }
 }

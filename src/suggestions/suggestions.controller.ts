@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { SuggestionsService } from './suggestions.service';
 import { SuggestionEntity } from './entities/suggestion.entity';
+import { CreateSuggestionDto } from './dto/create-suggestion.dto';
 
 @Controller('suggestions')
 export class SuggestionsController {
@@ -15,21 +16,10 @@ export class SuggestionsController {
      */
     @Get()
     async getSuggestions(
-        @Query('q') query: string,
-        @Query('latitude') latitude?: string,
-        @Query('longitude') longitude?: string,
+        @Query() query: CreateSuggestionDto
     ): Promise<{ suggestions: Array<SuggestionEntity> } | { error: string }> {
-        // Validate the required query parameter
-        if (!query) {
-            return { error: 'Query parameter "q" is required' };
-        }
-
-        // Parse latitude and longitude if provided
-        const userLatitude = latitude ? parseFloat(latitude) : undefined;
-        const userLongitude = longitude ? parseFloat(longitude) : undefined;
-
         // Fetch suggestions from the service
-        const suggestions = await this.suggestionsService.getSuggestions(query, userLatitude, userLongitude);
+        const suggestions = await this.suggestionsService.getSuggestions(query);
 
         // Return the suggestions in a structured response
         return { suggestions };
