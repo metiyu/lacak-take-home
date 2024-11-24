@@ -1,11 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SuggestionsService } from './suggestions/suggestions.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const suggestionsService = app.get(SuggestionsService);
+    const app = await NestFactory.create(AppModule);
+    const suggestionsService = app.get(SuggestionsService);
 
-  await app.listen(process.env.PORT ?? 3000);
+    app.enableCors({
+        origin: ['https://your-frontend-domain.com'],
+        methods: 'GET',
+        credentials: true,
+    });
+
+    await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
