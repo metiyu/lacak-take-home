@@ -2,34 +2,43 @@ import { Injectable } from '@nestjs/common';
 import { TrieService } from './trie/trie.service';
 import { CityRepository } from './repositories/city.repository';
 import { SuggestionEntity } from './entities/suggestion.entity';
-import * as FuzzySet from 'fuzzyset.js';
 import { CreateSuggestionDto } from './dto/create-suggestion.dto';
 import { CityEntity } from './entities/city.entity';
+import { FuzzyService } from './fuzzy/fuzzy.service';
+import { MAX_DISTANCE_KM, MAX_SUGGESTIONS, POPULATION_WEIGHT, PROXIMITY_WEIGHT } from '../common/constants';
 
+/**
+* @class
+* @description
+* Service handling city suggestions based on text search and geographical proximity.
+* Combines trie-based prefix matching, fuzzy search, and location-based filtering
+* to provide relevant city suggestions.
+*/
 @Injectable()
 export class SuggestionsService {
-    private fuzzySet: FuzzySet;
-    private cities: CityEntity[]; // This should be your city data source
-
     constructor(
         private readonly trieService: TrieService,
+        private readonly fuzzyService: FuzzyService,
         private readonly cityRepository: CityRepository,
-    ) {
-        this.fuzzySet = new FuzzySet();
-    }
+    ) { }
 
+    /** Initializes the service by loading and indexing cities */
     async onModuleInit() {
         await this.initializeCities();
     }
 
+    /**
+    * Loads cities from repository and initializes search indexes
+    * @private
+    * @throws {Error} If city loading fails
+    */
     private async initializeCities() {
         try {
-            this.cities = await this.cityRepository.getAllCities();
-            if (this.cities && this.cities.length > 0) {
-                this.cities.forEach(city => {
-                    this.fuzzySet.add(city.name);
-                });
-            }
+            const cities = await this.cityRepository.getAllCities();
+            cities.forEach(city => {
+                this.trieService.insert(city);
+                this.fuzzyService.addCity(city);
+            });
         } catch (error) {
             console.error("Error initializing cities:", error);
             throw new Error("Failed to load cities");
@@ -37,216 +46,281 @@ export class SuggestionsService {
     }
 
     /**
-     * Loads city data from a TSV file into the trie structure for future suggestions.
-     * @param filePath - The relative path to the TSV file containing city data.
-     */
-    async loadCities(filePath: string): Promise<void> {
-        try {
-            await this.cityRepository.loadCitiesFromFile(filePath);
-            await this.initializeCities(); // Implement this method in CityRepository
-        } catch (error) {
-            console.error("Error loading cities:", error);
-            throw new Error("Failed to load cities");
+    * Retrieves city suggestions based on search criteria
+    * @param {CreateSuggestionDto} query - Search parameters including text query and/or coordinates
+    * @returns {Promise<SuggestionEntity[]>} Ranked list of city suggestions
+    */
+    async getSuggestions(query: CreateSuggestionDto): Promise<SuggestionEntity[]> {
+        const suggestions = new Set<SuggestionEntity>();
+        const hasQuery = !!query.q;
+        const hasCoordinates = query.latitude !== undefined && query.longitude !== undefined;
+
+        // Case 1: Both query and coordinates exist
+        if (hasQuery && hasCoordinates) {
+            await this.handleQueryWithLocation(
+                query.q,
+                query.latitude,
+                query.longitude,
+                suggestions
+            );
+        }
+        // Case 2: Only query exists
+        else if (hasQuery && !hasCoordinates) {
+            await this.handleQueryOnly(query.q, suggestions);
+        }
+        // Case 3: Only coordinates exist
+        else if (!hasQuery && hasCoordinates) {
+            await this.handleLocationOnly(
+                query.latitude,
+                query.longitude,
+                suggestions
+            );
+        }
+
+        return this.rankAndLimitSuggestions(Array.from(suggestions.values()));
+    }
+
+    /**
+    * Handles search with both text query and location
+    * @private
+    * @param {string} query - Text search query
+    * @param {number} latitude - User's latitude
+    * @param {number} longitude - User's longitude
+    * @param {Set<SuggestionEntity>} suggestions - Set to store matching suggestions
+    */
+    private async handleQueryWithLocation(
+        query: string,
+        latitude: number,
+        longitude: number,
+        suggestions: Set<SuggestionEntity>
+    ): Promise<void> {
+        // First try prefix matches: Trie
+        const trieMatches = this.trieService.search(query);
+
+        if (trieMatches.length > 0) {
+            trieMatches.forEach(({ city, weight }) => {
+                suggestions.add(this.createSuggestion(
+                    city,
+                    weight,
+                    latitude,
+                    longitude
+                ));
+            });
+        } else {
+            // If no prefix matches: Fuzzy Matching
+            const fuzzyMatches = this.fuzzyService.findMatches(query);
+            fuzzyMatches.forEach(({ city, similarity }) => {
+                suggestions.add(this.createSuggestion(
+                    city,
+                    similarity,
+                    latitude,
+                    longitude
+                ));
+            });
         }
     }
 
     /**
-     * Retrieves a list of city suggestions based on a query and optional user location.
-     * @param query - The prefix of the city name to search for.
-     * @param latitude - Optional latitude of the user's location.
-     * @param longitude - Optional longitude of the user's location.
-     * @returns An array of suggested cities with their names, coordinates, and scores.
-     */
-    async getSuggestions(
-        query: CreateSuggestionDto,
-    ): Promise<Array<SuggestionEntity>> {
-        if (!this.cities) {
-            await this.initializeCities();
+    * Handles search with only text query
+    * @private
+    * @param {string} query - Text search query
+    * @param {Set<SuggestionEntity>} suggestions - Set to store matching suggestions
+    */
+    private async handleQueryOnly(
+        query: string,
+        suggestions: Set<SuggestionEntity>
+    ): Promise<void> {
+        const trieMatches = this.trieService.search(query);
+        const processedCities = new Set<number>();
+
+        if (trieMatches.length > 0) {
+            trieMatches.forEach(({ city, weight }) => {
+                suggestions.add(this.createSuggestion(
+                    city,
+                    weight
+                ));
+                processedCities.add(city.id);
+            });
         }
 
-        if (!this.cities || this.cities.length === 0) {
-            throw new Error("Failed to load cities");
+        // If few results, try fuzzy matching
+        if (suggestions.size < MAX_SUGGESTIONS) {
+            const fuzzyMatches = this.fuzzyService.findMatches(query)
+                .filter(match => !processedCities.has(match.city.id));
+            fuzzyMatches.forEach(({ city, similarity }) => {
+                suggestions.add(this.createSuggestion(
+                    city,
+                    similarity
+                ));
+            });
         }
-
-        // Search for cities matching the query prefix
-        const suggestions: SuggestionEntity[] = [];
-        const hasQuery = !!query.q;
-        const hasCoordinates = query.latitude !== undefined && query.longitude !== undefined;
-
-        // Case 1: Both q and coordinates exist
-        if (hasQuery && hasCoordinates) {
-            const fuzzyMatches = await this.getFuzzyMatches(query.q);
-            if (fuzzyMatches.length === 0) {
-                // If no fuzzy matches, try prefix matching
-                const prefixMatches = this.cities.filter(city =>
-                    city.name.toLowerCase().startsWith(query.q.toLowerCase())
-                );
-                for (const city of prefixMatches) {
-                    const proximityScore = this.calculateProximityScore(
-                        city.latitude,
-                        city.longitude,
-                        query.latitude,
-                        query.longitude,
-                    ).score;
-
-                    suggestions.push({
-                        name: this.formatCityName(city),
-                        latitude: city.latitude,
-                        longitude: city.longitude,
-                        score: this.combineScores(1, proximityScore),
-                    });
-                }
-            } else {
-                for (const match of fuzzyMatches) {
-                    const cityDetails = await this.getCityDetails(match[1]);
-                    if (!cityDetails) continue;
-
-                    const fuzzyScore = match[0];
-                    const proximityScore = this.calculateProximityScore(
-                        cityDetails.latitude,
-                        cityDetails.longitude,
-                        query.latitude,
-                        query.longitude,
-                    ).score;
-                    const finalScore = this.combineScores(fuzzyScore, proximityScore);
-
-                    suggestions.push({
-                        name: this.formatCityName(cityDetails),
-                        latitude: cityDetails.latitude,
-                        longitude: cityDetails.longitude,
-                        score: finalScore,
-                    });
-                }
-            }
-        }
-
-        // Case 2: Only q exists
-        if (hasQuery && !hasCoordinates) {
-            const prefixMatches = this.cities.filter(city =>
-                city.name.toLowerCase().startsWith(query.q.toLowerCase())
-            );
-
-            for (const city of prefixMatches) {
-                suggestions.push({
-                    name: this.formatCityName(city),
-                    latitude: city.latitude,
-                    longitude: city.longitude,
-                    score: 1, // Exact prefix match gets highest score
-                });
-            }
-
-            if (suggestions.length === 0) {
-                const fuzzyMatches = await this.getFuzzyMatches(query.q);
-                for (const match of fuzzyMatches) {
-                    const cityDetails = await this.getCityDetails(match[1]);
-                    if (!cityDetails) continue;
-
-                    suggestions.push({
-                        name: this.formatCityName(cityDetails),
-                        latitude: cityDetails.latitude,
-                        longitude: cityDetails.longitude,
-                        score: match[0],
-                    });
-                }
-            }
-        }
-
-        // Case 3: Only coordinates exist
-        if (!hasQuery && hasCoordinates) {
-            const nearbyCitiesWithScores = await this.getNearbyCities(query.latitude, query.longitude);
-            for (const { city, score } of nearbyCitiesWithScores) {
-                suggestions.push({
-                    name: this.formatCityName(city),
-                    latitude: city.latitude,
-                    longitude: city.longitude,
-                    score,
-                });
-            }
-        }
-
-        return this.sortSuggestions(suggestions);
     }
 
+    /**
+    * Handles search with only location
+    * @private
+    * @param {number} latitude - User's latitude
+    * @param {number} longitude - User's longitude
+    * @param {Set<SuggestionEntity>} suggestions - Set to store matching suggestions
+    */
+    private async handleLocationOnly(
+        latitude: number,
+        longitude: number,
+        suggestions: Set<SuggestionEntity>
+    ): Promise<void> {
+        const nearbyCities = await this.getNearbyCities(latitude, longitude);
+        nearbyCities.forEach(({ city, score }) => {
+            suggestions.add(this.createSuggestion(
+                city,
+                score,
+                latitude,
+                longitude
+            ));
+        });
+    }
+
+    /**
+    * Retrieves and ranks cities near a given location
+    * @private
+    * @param {number} latitude - Reference point latitude
+    * @param {number} longitude - Reference point longitude
+    * @returns {Promise<Array<{ city: CityEntity; score: number }>>} Array of nearby cities with proximity scores
+    */
+    private async getNearbyCities(
+        latitude: number,
+        longitude: number
+    ): Promise<Array<{ city: CityEntity; score: number }>> {
+        const cities = await this.cityRepository.getAllCities();
+        return cities
+            .map(city => {
+                const { distance, score } = this.calculateProximityScore(
+                    city.latitude,
+                    city.longitude,
+                    latitude,
+                    longitude
+                );
+                return { city, score, distance };
+            })
+            .filter(({ distance }) => distance <= MAX_DISTANCE_KM)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, MAX_SUGGESTIONS);
+    }
+
+    /**
+    * Creates a suggestion entity with combined text and proximity scores
+    * @private
+    * @param {CityEntity} city - City to create suggestion for
+    * @param {number} textMatchScore - Text matching score (0-1)
+    * @param {number} [userLat] - Optional user latitude for proximity scoring
+    * @param {number} [userLon] - Optional user longitude for proximity scoring
+    * @returns {SuggestionEntity} Formatted suggestion with combined score
+    */
+    private createSuggestion(
+        city: CityEntity,
+        textMatchScore: number,
+        userLat?: number,
+        userLon?: number
+    ): SuggestionEntity {
+        const { additionalScore, weight } =
+            userLat !== undefined && userLon !== undefined
+                ? {
+                    additionalScore: this.calculateProximityScore(city.latitude, city.longitude, userLat, userLon).score,
+                    weight: PROXIMITY_WEIGHT
+                }
+                : {
+                    additionalScore: this.calculatePopulationScore(city),
+                    weight: POPULATION_WEIGHT
+                };
+
+
+        return {
+            name: this.formatCityName(city),
+            latitude: city.latitude,
+            longitude: city.longitude,
+            score: this.combineScores(textMatchScore, additionalScore, weight)
+        };
+    }
+
+    /**
+    * Customize the city string that will be displayed in the suggestions
+    * @private
+    * @param {CityEntity} city - Cities that will be processed for display
+    * @returns {string} Formatted city name
+    */
     private formatCityName(city: CityEntity): string {
         return `${city.name}${city.country ? `, ${city.country}` : ''}${city.timezone ? `, ${city.timezone}` : ''}`;
     }
 
-    private async getFuzzyMatches(query: string): Promise<[]> {
-        const matches = this.fuzzySet.get(query);
-        return matches || [];
-    }
-
-    private async getCityDetails(cityName: string): Promise<CityEntity> {
-        const city = this.cities.find(c => c.name === cityName);
-        return city || null;
-    }
-
-    private async getNearbyCities(latitude: number, longitude: number, radius: number = 100): Promise<{ city: CityEntity; score: number }[]> {
-        const nearbyCitiesWithScores = this.cities
-            .map(city => {
-                const { distance, score } = this.calculateProximityScore(city.latitude, city.longitude, latitude, longitude);
-                return { city, score, distance };
-            })
-            .filter(({ distance }) => distance <= radius); // Filter cities within the specified radius
-
-        return nearbyCitiesWithScores;
-    }
-
     /**
-     * Calculates a proximity score based on the Haversine formula.
-     * @param cityLatitude - Latitude of the city.
-     * @param cityLongitude - Longitude of the city.
-     * @param userLatitude - Latitude of the user's location (optional).
-     * @param userLongitude - Longitude of the user's location (optional).
-     * @returns A score between 0 and 1, where 1 is the closest proximity.
-     */
+    * Calculates proximity score between two geographical points
+    * @private
+    * @param {number} cityLatitude - City's latitude
+    * @param {number} cityLongitude - City's longitude
+    * @param {number} userLatitude - User's latitude
+    * @param {number} userLongitude - User's longitude
+    * @returns {{ distance: number; score: number }} Distance in km and normalized score
+    */
     private calculateProximityScore(
         cityLatitude: number,
         cityLongitude: number,
-        userLatitude?: number,
-        userLongitude?: number,
+        userLatitude: number,
+        userLongitude: number
     ): { distance: number; score: number } {
-        if (userLatitude === undefined || userLongitude === undefined) {
-            return { distance: Infinity, score: 0 }; // Return a high distance and low score if no coordinates are provided
-        }
+        const earthRadiusKm = 6371;
+        const deltaLat = this.degreesToRadians(cityLatitude - userLatitude);
+        const deltaLon = this.degreesToRadians(cityLongitude - userLongitude);
 
-        const earthRadiusKm = 6371; // Radius of Earth in kilometers
-        const deltaLatitude = this.degreesToRadians(cityLatitude - userLatitude);
-        const deltaLongitude = this.degreesToRadians(cityLongitude - userLongitude);
-
-        // Haversine formula to calculate distance
         const a =
-            Math.sin(deltaLatitude / 2) ** 2 +
+            Math.sin(deltaLat / 2) ** 2 +
             Math.cos(this.degreesToRadians(userLatitude)) *
             Math.cos(this.degreesToRadians(cityLatitude)) *
-            Math.sin(deltaLongitude / 2) ** 2;
+            Math.sin(deltaLon / 2) ** 2;
 
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = earthRadiusKm * c; // Distance in kilometers
+        const distance = earthRadiusKm * c;
 
-        // Normalize the distance to a score between 0 and 1
-        const maxDistance = 1000; // Assuming a maximum distance of 1000 km for scoring purposes
-        const score = Math.max(0, 1 - distance / maxDistance);
+        const score = Math.max(0, 1 - distance / MAX_DISTANCE_KM);
 
         return { distance, score };
     }
 
     /**
      * Converts degrees to radians.
-     * @param degrees - The angle in degrees to convert.
-     * @returns The angle in radians.
+     * @private
+     * @param {number} degrees - Degrees to be converted
+     * @returns {number} Radians
      */
     private degreesToRadians(degrees: number): number {
         return degrees * (Math.PI / 180);
     }
 
-    private combineScores(fuzzyScore: number, additionalScore: number): number {
-        const fuzzyWeight = 0.6; // Weight for fuzzy score
-        const additionalWeight = 0.4; // Weight for proximity score
-        return (fuzzyScore * fuzzyWeight) + (additionalScore * additionalWeight);
+    /**
+     * Calculates a normalized population score for a city.
+     * @private
+     * @param {CityEntity} city - The city entity for which the population score is calculated.
+     * @returns {number} The population score, normalized based on the maximum population among all cities.
+     */
+    private calculatePopulationScore(city: CityEntity): number {
+        const divisor = Math.ceil(Math.log10(this.cityRepository.getMaxPopulation()));
+        return city.population ? Math.log10(city.population) / divisor : 0;
     }
 
-    private sortSuggestions(suggestions: SuggestionEntity[]): SuggestionEntity[] {
-        return suggestions.sort((a, b) => b.score - a.score);
+    /**
+     * Combines text matching and proximity scores to produce a final score.
+     * Weights are applied to each component score to reflect their relative importance.
+     * @private
+     * @param {number} textMatchScore - Score representing the text matching confidence (0-1).
+     * @param {number} proximityScore - Score representing the proximity confidence (0-1).
+     * @returns {number} The combined score, weighted by the configured constants.
+     */
+    private combineScores(textMatchScore: number, additionalScore: number, weight: number): number {
+        return (textMatchScore * (1 - weight)) +
+            (additionalScore * weight);
+    }
+
+    private rankAndLimitSuggestions(suggestions: SuggestionEntity[]): SuggestionEntity[] {
+        return suggestions
+            .sort((a, b) => b.score - a.score)
+            .slice(0, MAX_SUGGESTIONS);
     }
 }

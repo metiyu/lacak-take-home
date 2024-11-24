@@ -1,24 +1,114 @@
+/**
+ * @class
+ * @description
+ * Entity class representing a geographical location from the GeoNames database.
+ * Contains detailed information about cities and other geographical points
+ * including location coordinates, administrative divisions, and demographic data.
+ * @see {@link http://download.geonames.org/export/dump/} GeoNames Data Source
+ */
 export class CityEntity {
-    id: number;           // Unique identifier for the city
-    name: string;         // Name of the city
-    ascii: string;        // ASCII representation of the city name
-    altName: string;      // Alternate names for the city
-    latitude: number;          // Latitude of the city
-    longitude: number;         // Longitude of the city
-    featClass: string;    // Feature class (e.g., P for populated place)
-    featCode: string;     // Feature code
-    country: string;      // Country code
-    altCountry: string;   // Alternate country codes
-    admin1: string;       // First-level administrative division code
-    admin2: string;       // Second-level administrative division code
-    admin3: string;       // Third-level administrative division code
-    admin4: string;       // Fourth-level administrative division code
-    population: number;   // Population of the city
-    elevation: number;    // Elevation of the city in meters
-    dem: number;          // Digital elevation model (DEM) value
-    timezone: string;     // Timezone of the city
-    modifiedAt: Date;     // Date of last modification
+    /**
+     * Unique identifier from GeoNames database
+     */
+    id: number;
 
+    /**
+     * Official name of the geographical point (UTF-8)
+     */
+    name: string;
+
+    /**
+     * Name of geographical point in plain ASCII characters
+     */
+    ascii: string;
+
+    /**
+     * Alternative names, comma separated
+     */
+    altName: string;
+
+    /**
+     * Latitude in decimal degrees (WGS84)
+     */
+    latitude: number;
+
+    /**
+     * Longitude in decimal degrees (WGS84)
+     */
+    longitude: number;
+
+    /**
+     * Feature class (e.g., P for populated place)
+     * @see {@link http://www.geonames.org/export/codes.html}
+     */
+    featClass: string;
+
+    /**
+     * Detailed feature code
+     * @see {@link http://www.geonames.org/export/codes.html}
+     */
+    featCode: string;
+
+    /**
+     * ISO-3166 2-letter country code
+     */
+    country: string;
+
+    /**
+     * Alternate country codes, comma separated (ISO-3166)
+     */
+    altCountry: string;
+
+    /**
+     * First-level administrative division code (FIPS or ISO)
+     */
+    admin1: string;
+
+    /**
+     * Second-level administrative division code
+     */
+    admin2: string;
+
+    /**
+     * Third-level administrative division code
+     */
+    admin3: string;
+
+    /**
+     * Fourth-level administrative division code
+     */
+    admin4: string;
+
+    /**
+     * Population count
+     */
+    population: number;
+
+    /**
+     * Elevation in meters
+     */
+    elevation: number;
+
+    /**
+     * Digital elevation model value in meters (SRTM3 or GTOPO30)
+     * Average elevation of 3''x3'' (ca 90mx90m) or 30''x30'' (ca 900mx900m) area
+     */
+    dem: number;
+
+    /**
+     * Timezone identifier
+     */
+    timezone: string;
+
+    /**
+     * Last modification date
+     */
+    modifiedAt: Date;
+
+    /**
+     * Creates a new CityEntity instance
+     * @param {any} data - Raw data from GeoNames database
+     */
     constructor(data: any) {
         this.id = data.id;
         this.name = data.name;

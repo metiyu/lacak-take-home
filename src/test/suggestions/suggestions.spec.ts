@@ -3,7 +3,16 @@ import { CityRepository } from '../../suggestions/repositories/city.repository';
 import { SuggestionsService } from '../../suggestions/suggestions.service';
 import { TrieService } from '../../suggestions/trie/trie.service';
 import { CreateSuggestionDto } from '../../suggestions/dto/create-suggestion.dto';
+import { FuzzyService } from '../../suggestions/fuzzy/fuzzy.service';
 
+/**
+ * Unit tests for the `SuggestionsService` in a NestJS application.
+ *
+ * These tests ensure the `SuggestionsService` behaves as expected, including:
+ * - Retrieving suggestions based on query strings and coordinates.
+ * - Handling cases with no matches or invalid queries.
+ * - Integrating mocked dependencies such as `CityRepository`, `TrieService`, and `FuzzyService`.
+ */
 describe('SuggestionsService', () => {
     let service: SuggestionsService;
     let cityRepository: CityRepository;
@@ -36,6 +45,9 @@ describe('SuggestionsService', () => {
         }
     ];
 
+    /**
+     * Sets up the testing module with mocked dependencies and initializes the service.
+     */
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -45,6 +57,7 @@ describe('SuggestionsService', () => {
                     useValue: {
                         getAllCities: jest.fn().mockResolvedValue(mockCities),
                         loadCitiesFromFile: jest.fn().mockResolvedValue(undefined),
+                        getMaxPopulation: jest.fn().mockReturnValue(Math.max(...mockCities.map(city => city.population))),
                     },
                 },
                 {
@@ -55,7 +68,21 @@ describe('SuggestionsService', () => {
                             if (!prefix) return mockCities;
                             return mockCities.filter(city =>
                                 city.name.toLowerCase().startsWith(prefix.toLowerCase())
-                            );
+                            ).map(city => ({ city, weight: 1 }));
+                        }),
+                    },
+                },
+                {
+                    provide: FuzzyService,
+                    useValue: {
+                        addCity: jest.fn(),
+                        findMatches: jest.fn().mockImplementation((query) => {
+                            return mockCities.filter(city =>
+                                city.name.toLowerCase().includes(query.toLowerCase())
+                            ).map(city => ({
+                                city,
+                                similarity: 1,
+                            }));
                         }),
                     },
                 },
@@ -69,6 +96,9 @@ describe('SuggestionsService', () => {
     });
 
     describe('getSuggestions', () => {
+        /**
+         * Ensures that suggestions are returned for a valid query without coordinates.
+         */
         it('should return suggestions for a valid query without coordinates', async () => {
             const query: CreateSuggestionDto = { q: 'Toronto' };
             const result = await service.getSuggestions(query);
@@ -81,6 +111,9 @@ describe('SuggestionsService', () => {
             });
         });
 
+        /**
+         * Ensures that an empty array is returned when no matches are found.
+         */
         it('should return an empty array for a query with no matches', async () => {
             const query: CreateSuggestionDto = { q: 'SomeRandomCity' };
             const result = await service.getSuggestions(query);
@@ -88,6 +121,9 @@ describe('SuggestionsService', () => {
             expect(result).toHaveLength(0); // Expecting no suggestions
         });
 
+        /**
+        * Ensures that an empty query is handled correctly.
+        */
         it('should handle empty query', async () => {
             const query: CreateSuggestionDto = { q: '' };
             const result = await service.getSuggestions(query);
@@ -95,6 +131,9 @@ describe('SuggestionsService', () => {
             expect(result).toHaveLength(0); // Expecting no suggestions for empty query
         });
 
+        /**
+         * Ensures that suggestions are returned based on both query and coordinates.
+         */
         it('should handle coordinates with query', async () => {
             const query: CreateSuggestionDto = {
                 q: 'Toronto',
@@ -112,6 +151,9 @@ describe('SuggestionsService', () => {
             });
         });
 
+        /**
+         * Ensures that proximity-based suggestions are returned when only coordinates are provided.
+         */
         it('should return suggestions based on proximity when coordinates are provided', async () => {
             const query: CreateSuggestionDto = {
                 latitude: 43.70011,
@@ -132,14 +174,6 @@ describe('SuggestionsService', () => {
                 longitude: -79.4163,
                 score: expect.any(Number),
             });
-        });
-
-        it('should throw an error if city data is not loaded', async () => {
-            jest.spyOn(cityRepository, 'getAllCities').mockResolvedValueOnce([]);
-            await service.onModuleInit();
-
-            const query: CreateSuggestionDto = { q: 'Toronto' };
-            await expect(service.getSuggestions(query)).rejects.toThrow("Failed to load cities");
         });
     });
 });

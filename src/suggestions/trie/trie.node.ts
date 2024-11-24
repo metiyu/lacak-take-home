@@ -1,29 +1,46 @@
-import { TrieEntity } from "../entities/trie.entity";
+import { CityEntity } from "../entities/city.entity";
 
+/**
+* @class
+* @description
+* Node class for the Trie data structure used in city name autocomplete.
+* Each node represents a character in the city name and can store city data,
+* weights for ranking, and alternative names for the city.
+*/
 export class TrieNode {
     /**
-     * Children of the current node, where the key is a character
-     * and the value is the corresponding TrieNode.
-     */
+    * Map of child nodes, where key is the character and value is the child TrieNode
+    */
     children: Map<string, TrieNode>;
 
     /**
-     * Indicates whether this node marks the end of a word.
+     * Indicates if this node represents the end of a valid city name
      */
-    // isEndOfWord: boolean;
+    isEndOfWord: boolean;
 
     /**
-     * List of cities associated with this node.
+     * Weight value used for ranking suggestions (higher values indicate higher relevance)
      */
-    // cities: Array<TrieEntity>;
-    cities: Array<{ city: TrieEntity; weight: number }>;
+    weight: number;
 
     /**
-     * Constructor to initialize a TrieNode.
+     * Reference to the complete city data associated with this node
      */
+    city: CityEntity;
+
+    /**
+     * Collection of alternative names associated with the city
+     */
+    alternateNames: string[];
+
+    /**
+    * Creates a new TrieNode instance with default values
+    */
     constructor() {
-        this.children = new Map(); // Initialize children as an empty map
-        // this.isEndOfWord = false; // Default is not the end of a word
-        this.cities = []; // Initialize cities as an empty array
+        this.children = new Map();
+        this.isEndOfWord = false;
+        this.weight = 0;
+        this.city = null;
+        this.alternateNames = [];
     }
 }

@@ -3,25 +3,31 @@ import { SuggestionsService } from './suggestions.service';
 import { SuggestionEntity } from './entities/suggestion.entity';
 import { CreateSuggestionDto } from './dto/create-suggestion.dto';
 
+/**
+* @class
+* @description
+* Controller handling city suggestion endpoints.
+* Provides REST API endpoints for city name autocomplete functionality
+* with optional geolocation-based relevance.
+*/
 @Controller('suggestions')
 export class SuggestionsController {
     constructor(private readonly suggestionsService: SuggestionsService) { }
 
     /**
-     * Endpoint to fetch city suggestions based on a query and optional user location.
-     * @param query - The prefix of the city name to search for (required).
-     * @param latitude - Optional latitude of the user's location.
-     * @param longitude - Optional longitude of the user's location.
-     * @returns A response containing an array of suggestions or an error message.
-     */
+    * Retrieves city suggestions based on search query and optional location
+    * @param {CreateSuggestionDto} query - Query parameters
+    * @param {string} query.q - Search text for city name
+    * @param {number} [query.latitude] - User's latitude for location-based relevance
+    * @param {number} [query.longitude] - User's longitude for location-based relevance
+    * @returns {Promise<{suggestions: SuggestionEntity[]} | {error: string}>} 
+    * Array of matched city suggestions or error message
+    */
     @Get()
     async getSuggestions(
         @Query() query: CreateSuggestionDto
     ): Promise<{ suggestions: Array<SuggestionEntity> } | { error: string }> {
-        // Fetch suggestions from the service
         const suggestions = await this.suggestionsService.getSuggestions(query);
-
-        // Return the suggestions in a structured response
         return { suggestions };
     }
 }
