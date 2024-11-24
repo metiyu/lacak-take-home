@@ -7,11 +7,7 @@ async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     const suggestionsService = app.get(SuggestionsService);
 
-    app.enableCors({
-        origin: ['https://your-frontend-domain.com'],
-        methods: 'GET',
-        credentials: true,
-    });
+    app.enableCors();
 
     await app.listen(process.env.PORT ?? 3000);
 }

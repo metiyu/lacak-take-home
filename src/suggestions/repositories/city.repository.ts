@@ -33,7 +33,8 @@ export class CityRepository {
         const path = require('path');
         const fs = require('fs');
 
-        const absolutePath = path.join(process.cwd(), filePath);
+        // const absolutePath = path.join(process.cwd(), filePath);
+        const absolutePath = path.join(process.cwd(), 'data', 'cities_canada-usa.tsv');
         const data = await fs.promises.readFile(absolutePath, "utf-8");
         const lines = data.trim().split("\n");
         const header = lines[0].split("\t");
